@@ -67,12 +67,16 @@ func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
 					fmt.Println(data.beforeBuffer[i])
 					i++
 				}
-				clear(data.beforeBuffer)
+				data.beforeBuffer = nil
 			}
 			printFindLine(data, line)
 			data.lastPrinted = data.lineNumber
 			data.linesToPrintAfterMatch = max(data.Config.A, data.Config.C)
 			continue
+		}
+
+		if data.linesToPrintAfterMatch <= 0 && (data.Config.B > 0 || data.Config.C > 0) {
+			data.beforeBuffer = append(data.beforeBuffer, line)
 		}
 
 		if data.linesToPrintAfterMatch > 0 {
@@ -83,10 +87,6 @@ func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
 			} else {
 				data.linesToPrintAfterMatch--
 			}
-		}
-
-		if data.Config.B > 0 || data.Config.C > 0 {
-			data.beforeBuffer = append(data.beforeBuffer, line)
 		}
 	}
 
