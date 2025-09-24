@@ -51,7 +51,7 @@ func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
 		data.lineNumber++
 		line := scanner.Text()
 
-		if isMatch(line, config, regex) == true {
+		if isMatch(line, config, regex) {
 			data.matchCount++
 
 			if data.Config.Count {
@@ -64,7 +64,7 @@ func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
 					i = 0
 				}
 				for i < len(data.beforeBuffer) {
-					fmt.Println(data.beforeBuffer[i])
+					printLine(data, data.beforeBuffer[i], i+1)
 					i++
 				}
 				data.beforeBuffer = nil
@@ -81,7 +81,7 @@ func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
 
 		if data.linesToPrintAfterMatch > 0 {
 			if data.lineNumber > data.lastPrinted {
-				printLine(data, line)
+				printLine(data, line, data.lineNumber)
 				data.lastPrinted = data.lineNumber
 				data.linesToPrintAfterMatch--
 			} else {
@@ -119,16 +119,16 @@ func isMatch(line string, config *cfg.GrepConfig, regex *regexp.Regexp) bool {
 // printFindLine - выводит найденную строку
 func printFindLine(data *Data, line string) {
 	if data.Config.LineNumber {
-		fmt.Printf("-> %d %s\n <-", data.lineNumber, line)
+		fmt.Printf("-> %d %s <-\n", data.lineNumber, line)
 	} else {
 		fmt.Println("-> " + line + " <-")
 	}
 }
 
 // printLine - выводит строку
-func printLine(data *Data, line string) {
+func printLine(data *Data, line string, lineNumber int) {
 	if data.Config.LineNumber {
-		fmt.Printf("%d %s\n", data.lineNumber, line)
+		fmt.Printf("%d %s\n", lineNumber, line)
 	} else {
 		fmt.Println(line)
 	}

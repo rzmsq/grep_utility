@@ -22,11 +22,11 @@ func NewFromFlags() *GrepConfig {
 	flag.IntVar(&cfg.B, "B", 0, "Print N number before match")
 	flag.IntVar(&cfg.C, "C", 0, "Print N number around match")
 	flag.BoolVar(&cfg.Count, "c", false, "Print count")
-	flag.BoolVar(&cfg.IgnoreCase, "i", false, "Print count")
+	flag.BoolVar(&cfg.IgnoreCase, "i", false, "Ignore case")
 	flag.BoolVar(&cfg.Invert, "v", false, "Invert match")
 	flag.BoolVar(&cfg.Fixed, "F", false, "Fix match")
 	flag.BoolVar(&cfg.LineNumber, "n", false, "Line number")
-	flag.StringVar(&cfg.FilePath, "f", "", "Line number")
+	flag.StringVar(&cfg.FilePath, "f", "", "File path")
 
 	flag.Parse()
 

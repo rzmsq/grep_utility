@@ -1,8 +1,9 @@
 package grep
 
 import (
-	"bufio"
-	"fmt"
+	"bytes"
+	"io"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -26,422 +27,349 @@ func createConfig() *cfg.GrepConfig {
 	}
 }
 
-// Helper function to capture output
-func captureOutput(config *cfg.GrepConfig, input string) (string, error) {
-	reader := strings.NewReader(input)
+// Helper function to capture stdout output
+func captureStdout(fn func()) string {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
 
-	// Temporary redirect stdout to capture output
-	// Create a custom version that writes to buffer instead of stdout
-	data := newData(*config)
-	scanner := bufio.NewScanner(reader)
+	outC := make(chan string)
+	go func() {
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		outC <- buf.String()
+	}()
 
-	pattern := data.Config.Pattern
-	if data.Config.IgnoreCase && !data.Config.Fixed {
-		pattern = "(?i)" + pattern
-	}
-
-	regex, err := regexp.Compile(pattern)
-	if err != nil {
-		return "", err
-	}
-
-	var output []string
-
-	for scanner.Scan() {
-		data.lineNumber++
-		line := scanner.Text()
-
-		if isMatch(line, config, regex) {
-			data.matchCount++
-
-			if data.Config.Count {
-				continue
-			}
-
-			// Handle before context
-			if data.Config.B > 0 || data.Config.C > 0 {
-				i := max(data.Config.B, data.Config.C)
-				if i >= len(data.beforeBuffer) {
-					i = 0
-				}
-				for i < len(data.beforeBuffer) {
-					if data.Config.LineNumber {
-						lineNum := data.lineNumber - len(data.beforeBuffer) + i
-						output = append(output, fmt.Sprintf("%d %s", lineNum, data.beforeBuffer[i]))
-					} else {
-						output = append(output, data.beforeBuffer[i])
-					}
-					i++
-				}
-				clear(data.beforeBuffer)
-			}
-
-			// Print matched line
-			if data.Config.LineNumber {
-				output = append(output, fmt.Sprintf("-> %d %s <-", data.lineNumber, line))
-			} else {
-				output = append(output, "-> "+line+" <-")
-			}
-
-			data.lastPrinted = data.lineNumber
-			data.linesToPrintAfterMatch = max(data.Config.A, data.Config.C)
-			continue
-		}
-
-		// Handle after context
-		if data.linesToPrintAfterMatch > 0 {
-			if data.lineNumber > data.lastPrinted {
-				if data.Config.LineNumber {
-					output = append(output, fmt.Sprintf("%d %s", data.lineNumber, line))
-				} else {
-					output = append(output, line)
-				}
-				data.lastPrinted = data.lineNumber
-				data.linesToPrintAfterMatch--
-			} else {
-				data.linesToPrintAfterMatch--
-			}
-		}
-
-		// Update before buffer
-		if data.Config.B > 0 || data.Config.C > 0 {
-			data.beforeBuffer = append(data.beforeBuffer, line)
-			maxBuffer := max(data.Config.B, data.Config.C)
-			if len(data.beforeBuffer) > maxBuffer {
-				data.beforeBuffer = data.beforeBuffer[1:]
-			}
-		}
-	}
-
-	if data.Config.Count {
-		return fmt.Sprintf("%d", data.matchCount), nil
-	}
-
-	return strings.Join(output, "\n"), nil
+	fn()
+	w.Close()
+	os.Stdout = old
+	out := <-outC
+	return out
 }
 
-func TestBasicMatch(t *testing.T) {
+func TestRunGrepBasicMatch(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "no"
 
 	input := "hello\nno match\nother line"
-	expected := "-> no match <-"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> no match <-\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestCountFlag(t *testing.T) {
+func TestRunGrepCountFlag(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "no"
 	config.Count = true
 
 	input := "hello\nno match\nanother no\nother line"
-	expected := "2"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "2\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestIgnoreCaseFlag(t *testing.T) {
+func TestRunGrepIgnoreCaseFlag(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "NO"
 	config.IgnoreCase = true
 
 	input := "hello\nno match\nNO MATCH"
-	expected := "-> no match <-\n-> NO MATCH <-"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> no match <-\n-> NO MATCH <-\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestInvertFlag(t *testing.T) {
+func TestRunGrepInvertFlag(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "no"
 	config.Invert = true
 
 	input := "hello\nno match\nother line"
-	expected := "-> hello <-\n-> other line <-"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
-	}
-}
-
-func TestFixedFlag(t *testing.T) {
-	config := createConfig()
-	config.Pattern = "n.*o"
-	config.Fixed = true
-
-	input := "hello\nn.*o literal\nno match"
-	expected := "-> n.*o literal <-"
-
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> hello <-\n-> other line <-\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestLineNumberFlag(t *testing.T) {
+func TestRunGrepLineNumberFlag(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "no"
 	config.LineNumber = true
 
 	input := "hello\nno match\nother line\nno again"
-	expected := "-> 2 no match <-\n-> 4 no again <-"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> 2 no match <-\n-> 4 no again <-\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestAfterContextFlag(t *testing.T) {
+func TestRunGrepAfterContextFlag(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "match"
 	config.A = 2
 
 	input := "line1\nThis is a match\nafter1\nafter2\nafter3\nline6"
-	expected := "-> This is a match <-\nafter1\nafter2"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> This is a match <-\nafter1\nafter2\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestBeforeContextFlag(t *testing.T) {
+func TestRunGrepBeforeContextFlag(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "match"
 	config.B = 2
 
 	input := "before1\nbefore2\nThis is a match\nafter1\nline5"
-	expected := "before1\nbefore2\n-> This is a match <-"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "before1\nbefore2\n-> This is a match <-\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestContextFlag(t *testing.T) {
+func TestRunGrepContextFlag(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "match"
 	config.C = 1
 
 	input := "line1\nbefore\nThis is a match\nafter\nline5"
-	expected := "before\n-> This is a match <-\nafter"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "before\n-> This is a match <-\nafter\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestCombinedFlags(t *testing.T) {
+func TestRunGrepContextWithLineNumbers(t *testing.T) {
 	config := createConfig()
-	config.Pattern = "MATCH"
-	config.IgnoreCase = true
-	config.LineNumber = true
+	config.Pattern = "match"
 	config.C = 1
+	config.LineNumber = true
 
 	input := "line1\nbefore\nThis is a match\nafter\nline5"
-	expected := "2 before\n-> 3 This is a match <-\n4 after"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "2 before\n-> 3 This is a match <-\n4 after\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestMultipleMatches(t *testing.T) {
+func TestRunGrepMultipleMatches(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "test"
 	config.A = 1
 
 	input := "line1\ntest1\nafter1\ntest2\nafter2\nline6"
-	expected := "-> test1 <-\nafter1\n-> test2 <-\nafter2"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> test1 <-\nafter1\n-> test2 <-\nafter2\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestEdgeCaseEmptyInput(t *testing.T) {
+func TestRunGrepInvalidRegex(t *testing.T) {
+	config := createConfig()
+	config.Pattern = "[invalid"
+
+	input := "test line"
+	reader := strings.NewReader(input)
+
+	err := RunGrep(config, reader)
+	if err == nil {
+		t.Error("Expected error for invalid regex, got nil")
+	}
+}
+
+func TestRunGrepEmptyInput(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "test"
 
 	input := ""
-	expected := ""
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	if output != "" {
+		t.Errorf("Expected empty output, got '%s'", output)
 	}
 }
 
-func TestEdgeCaseNoMatches(t *testing.T) {
+func TestRunGrepNoMatches(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "nomatch"
 	config.Count = true
 
 	input := "line1\nline2\nline3"
-	expected := "0"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "0\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestEdgeCaseContextAtBeginning(t *testing.T) {
+func TestRunGrepFixedString(t *testing.T) {
 	config := createConfig()
-	config.Pattern = "match"
-	config.B = 5
+	config.Pattern = "n.*o"
+	config.Fixed = true
 
-	input := "match here\nafter1\nafter2"
-	expected := "-> match here <-"
+	input := "hello\nn.*o literal\nno match"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
-	}
-}
-
-func TestEdgeCaseContextAtEnd(t *testing.T) {
-	config := createConfig()
-	config.Pattern = "match"
-	config.A = 5
-
-	input := "before1\nbefore2\nmatch here"
-	expected := "-> match here <-"
-
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> n.*o literal <-\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestRegexPattern(t *testing.T) {
-	config := createConfig()
-	config.Pattern = "test[0-9]+"
-
-	input := "test\ntest123\ntest456\ntestABC"
-	expected := "-> test123 <-\n-> test456 <-"
-
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
-	}
-}
-
-func TestFixedWithIgnoreCase(t *testing.T) {
+func TestRunGrepFixedWithIgnoreCase(t *testing.T) {
 	config := createConfig()
 	config.Pattern = "Test"
 	config.Fixed = true
 	config.IgnoreCase = true
 
 	input := "test\nTEST\nTest\nother"
-	expected := "-> test <-\n-> TEST <-\n-> Test <-"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> test <-\n-> TEST <-\n-> Test <-\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
-func TestInvertWithCount(t *testing.T) {
+func TestRunGrepRegexPattern(t *testing.T) {
 	config := createConfig()
-	config.Pattern = "skip"
-	config.Invert = true
-	config.Count = true
+	config.Pattern = "test[0-9]+"
 
-	input := "line1\nskip this\nline2\nline3"
-	expected := "3"
+	input := "test\ntest123\ntest456\ntestABC"
+	reader := strings.NewReader(input)
 
-	result, err := captureOutput(config, input)
-	if err != nil {
-		t.Fatalf("Error: %v", err)
-	}
+	output := captureStdout(func() {
+		err := RunGrep(config, reader)
+		if err != nil {
+			t.Fatalf("Error: %v", err)
+		}
+	})
 
-	if result != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, result)
+	expected := "-> test123 <-\n-> test456 <-\n"
+	if output != expected {
+		t.Errorf("Expected '%s', got '%s'", expected, output)
 	}
 }
 
@@ -481,6 +409,15 @@ func TestIsMatchFunction(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "Regex match",
+			line: "test123",
+			config: &cfg.GrepConfig{
+				Pattern: "test[0-9]+",
+				Fixed:   false,
+			},
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -504,5 +441,25 @@ func TestIsMatchFunction(t *testing.T) {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
 		})
+	}
+}
+
+func TestDataConstructor(t *testing.T) {
+	config := cfg.GrepConfig{
+		B: 5,
+	}
+	data := newData(config)
+
+	if data.Config.B != 5 {
+		t.Errorf("Expected B=5, got %d", data.Config.B)
+	}
+	if data.matchCount != 0 {
+		t.Errorf("Expected matchCount=0, got %d", data.matchCount)
+	}
+	if data.lineNumber != 0 {
+		t.Errorf("Expected lineNumber=0, got %d", data.lineNumber)
+	}
+	if data.lastPrinted != -1 {
+		t.Errorf("Expected lastPrinted=-1, got %d", data.lastPrinted)
 	}
 }
