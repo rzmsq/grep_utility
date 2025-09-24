@@ -14,6 +14,7 @@ type GrepConfig struct {
 	LineNumber bool
 }
 
+// NewFromFlags - Парсинг флагов
 func NewFromFlags() *GrepConfig {
 	cfg := &GrepConfig{}
 
@@ -23,7 +24,7 @@ func NewFromFlags() *GrepConfig {
 	flag.BoolVar(&cfg.Count, "c", false, "Print count")
 	flag.BoolVar(&cfg.IgnoreCase, "i", false, "Print count")
 	flag.BoolVar(&cfg.Invert, "v", false, "Invert match")
-	flag.BoolVar(&cfg.Fixed, "fix", false, "Fix match")
+	flag.BoolVar(&cfg.Fixed, "F", false, "Fix match")
 	flag.BoolVar(&cfg.LineNumber, "n", false, "Line number")
 	flag.StringVar(&cfg.FilePath, "f", "", "Line number")
 

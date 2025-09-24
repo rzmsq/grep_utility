@@ -20,8 +20,8 @@ type Data struct {
 	lastPrinted            int
 }
 
-// newGrepData - конструктор для GrepData
-func newGrepData(config cfg.GrepConfig) *Data {
+// newData - конструктор для Data
+func newData(config cfg.GrepConfig) *Data {
 	return &Data{
 		Config:                 config,
 		beforeBuffer:           make([]string, 0, config.B),
@@ -34,7 +34,7 @@ func newGrepData(config cfg.GrepConfig) *Data {
 
 // RunGrep - основной цикл обработки
 func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
-	data := newGrepData(*config)
+	data := newData(*config)
 	scanner := bufio.NewScanner(reader)
 
 	pattern := data.Config.Pattern
@@ -53,15 +53,25 @@ func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
 
 		if isMatch(line, config, regex) == true {
 			data.matchCount++
+
+			if data.Config.Count {
+				continue
+			}
+
 			if data.Config.B > 0 || data.Config.C > 0 {
-				for _, preLine := range data.beforeBuffer {
-					fmt.Println(preLine)
+				i := max(data.Config.B, data.Config.C)
+				if i >= len(data.beforeBuffer) {
+					i = 0
+				}
+				for i < len(data.beforeBuffer) {
+					fmt.Println(data.beforeBuffer[i])
+					i++
 				}
 				clear(data.beforeBuffer)
 			}
-			printLine(data, line)
+			printFindLine(data, line)
 			data.lastPrinted = data.lineNumber
-			data.linesToPrintAfterMatch = data.Config.A
+			data.linesToPrintAfterMatch = max(data.Config.A, data.Config.C)
 			continue
 		}
 
@@ -79,12 +89,16 @@ func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
 			data.beforeBuffer = append(data.beforeBuffer, line)
 		}
 	}
+
+	if data.Config.Count {
+		fmt.Println(data.matchCount)
+	}
+
 	return nil
 }
 
 // isMatch - проверяет, соответствует ли строка шаблону
 func isMatch(line string, config *cfg.GrepConfig, regex *regexp.Regexp) bool {
-	// ... (реализуем логику с regexp, fixed и ignore case) ...
 	var match bool
 	if config.Fixed {
 		if config.IgnoreCase {
@@ -102,7 +116,16 @@ func isMatch(line string, config *cfg.GrepConfig, regex *regexp.Regexp) bool {
 	return match
 }
 
-// printLine - выводит найденные строки и контекст
+// printFindLine - выводит найденную строку
+func printFindLine(data *Data, line string) {
+	if data.Config.LineNumber {
+		fmt.Printf("-> %d %s\n <-", data.lineNumber, line)
+	} else {
+		fmt.Println("-> " + line + " <-")
+	}
+}
+
+// printLine - выводит строку
 func printLine(data *Data, line string) {
 	if data.Config.LineNumber {
 		fmt.Printf("%d %s\n", data.lineNumber, line)
