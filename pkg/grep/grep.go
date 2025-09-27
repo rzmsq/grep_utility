@@ -90,6 +90,10 @@ func RunGrep(config *cfg.GrepConfig, reader io.Reader) error {
 		}
 	}
 
+	if scanner.Err() != nil {
+		return scanner.Err()
+	}
+
 	if data.Config.Count {
 		fmt.Println(data.matchCount)
 	}

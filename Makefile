@@ -2,7 +2,6 @@
 BINARY_NAME=grep_utility
 MAIN_PATH=./cmd
 PKG_PATH=./pkg/...
-CMD_PATH=./cmd/...
 
 # Go configuration
 GOCMD=go
@@ -46,11 +45,11 @@ build-all: build-linux build-windows build-mac
 # Run tests
 .PHONY: test
 test:
-	$(GOTEST) $(TEST_FLAGS) $(PKG_PATH) $(CMD_PATH)
+	$(GOTEST) $(TEST_FLAGS) $(PKG_PATH)
 
 .PHONY: test-short
 test-short:
-	$(GOTEST) -short $(PKG_PATH) $(CMD_PATH)
+	$(GOTEST) -short $(PKG_PATH)
 
 .PHONY: test-coverage
 test-coverage: test
